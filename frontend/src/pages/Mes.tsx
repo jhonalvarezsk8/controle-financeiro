@@ -17,82 +17,26 @@ function corSaldo(v: number): string {
   return "text-green-600";
 }
 
-interface PeriodoMargem {
-  periodoFimLabel: string;
-  proximaRenda: string;
-  margem: number;
-}
-
-function calcularMargensGasto(
-  diasAtual: DiaResumo[],
-  diasProximo: DiaResumo[],
-  hoje: Date
-): PeriodoMargem[] {
-  const allDays = [...diasAtual, ...diasProximo];
-
-  const incomeDays = allDays
-    .filter(d => d.entradas > 0 && new Date(d.data + "T00:00:00") > hoje)
-    .sort((a, b) => a.data.localeCompare(b.data));
-
-  if (incomeDays.length === 0) return [];
-
-  const resultado: PeriodoMargem[] = [];
-  const pad = (n: number) => String(n).padStart(2, "0");
-
-  for (let i = 0; i < Math.min(incomeDays.length, 3); i++) {
-    const I = incomeDays[i];
-    const INext = incomeDays[i + 1];
-
-    const periodDays = allDays.filter(d =>
-      d.data >= I.data && (!INext || d.data < INext.data)
-    );
-    if (periodDays.length === 0) continue;
-
-    const margem = Math.min(...periodDays.map(d => d.saldo));
-
-    const IDate = new Date(I.data + "T00:00:00");
-    const fimDate = new Date(IDate);
-    fimDate.setDate(fimDate.getDate() - 1);
-
-    resultado.push({
-      periodoFimLabel: `${pad(fimDate.getDate())}/${pad(fimDate.getMonth() + 1)}`,
-      proximaRenda: `Dia ${pad(IDate.getDate())}/${pad(IDate.getMonth() + 1)}`,
-      margem,
-    });
-
-    if (i === 1) break;
-  }
-
-  return resultado;
-}
-
 export default function Mes() {
   const { mes } = useParams<{ mes: string }>();
   const navigate = useNavigate();
   const mesNum = parseInt(mes ?? "1");
 
   const [dias, setDias] = useState<DiaResumo[]>([]);
-  const [diasProximo, setDiasProximo] = useState<DiaResumo[]>([]);
   const [resumo, setResumo] = useState<ResumoMes | null>(null);
   const [saldoAtual, setSaldoAtualState] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function carregar() {
     setLoading(true);
-    const proximoMes = mesNum === 12 ? 1 : mesNum + 1;
-    const proximoAno = mesNum === 12 ? ANO + 1 : ANO;
-    const mesAtualNum = new Date().getMonth() + 1;
-
-    const fetchBase = [getDiasMes(ANO, mesNum), getResumoAnual(ANO), getSaldoAtual()] as const;
-    const results = mesNum >= mesAtualNum
-      ? await Promise.all([...fetchBase, getDiasMes(proximoAno, proximoMes)])
-      : await Promise.all(fetchBase);
-
-    const [diasData, resumoAnual, sa] = results;
+    const [diasData, resumoAnual, sa] = await Promise.all([
+      getDiasMes(ANO, mesNum),
+      getResumoAnual(ANO),
+      getSaldoAtual(),
+    ]);
     setDias(diasData);
     setResumo(resumoAnual.find((r) => r.mes === mesNum) ?? null);
     setSaldoAtualState(sa.saldo);
-    setDiasProximo((results[3] as DiaResumo[]) ?? []);
     setLoading(false);
   }
 
@@ -102,9 +46,8 @@ export default function Mes() {
 
   const mesAtualNum = new Date().getMonth() + 1;
   const ehMesAtualOuFuturo = mesNum >= mesAtualNum;
-  const margens = ehMesAtualOuFuturo && !loading
-    ? calcularMargensGasto(dias, diasProximo, new Date())
-    : [];
+  const saldoD14 = dias.find((d) => d.dia === 14)?.saldo ?? null;
+  const saldoD29 = dias.find((d) => d.dia === 29)?.saldo ?? null;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
@@ -143,20 +86,28 @@ export default function Mes() {
       )}
 
       {/* Painel de margem de gasto */}
-      {ehMesAtualOuFuturo && margens.length > 0 && (
+      {ehMesAtualOuFuturo && (saldoD14 !== null || saldoD29 !== null) && (
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 mb-5">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Margem de gasto disponível</p>
-          <div className={`grid gap-4 ${margens.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
-            {margens.map((m, i) => (
-              <div key={i}>
-                <p className="text-xs text-gray-400 mb-0.5">Pode gastar até {m.periodoFimLabel}</p>
-                <p className={`text-lg font-bold ${corSaldo(m.margem)}`}>{BRL.format(m.margem)}</p>
-                {m.margem < 0 && (
+          <div className="grid grid-cols-2 gap-4">
+            {saldoD14 !== null && (
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Pode gastar até o dia 14</p>
+                <p className={`text-lg font-bold ${corSaldo(saldoD14)}`}>{BRL.format(saldoD14)}</p>
+                {saldoD14 < 0 && (
                   <p className="text-xs text-red-500 mt-0.5">Contas já superam o saldo atual</p>
                 )}
-                <p className="text-xs text-gray-400 mt-0.5">próx. renda: {m.proximaRenda}</p>
               </div>
-            ))}
+            )}
+            {saldoD29 !== null && (
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Pode gastar até o dia 29</p>
+                <p className={`text-lg font-bold ${corSaldo(saldoD29)}`}>{BRL.format(saldoD29)}</p>
+                {saldoD29 < 0 && (
+                  <p className="text-xs text-red-500 mt-0.5">Contas já superam o saldo atual</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
