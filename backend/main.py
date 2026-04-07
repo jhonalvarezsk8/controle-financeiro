@@ -1,8 +1,12 @@
 import os
+import calendar
+from datetime import date, datetime
+from typing import List
+
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List
+
 import models
 import schemas
 from database import engine, get_db
@@ -25,84 +29,213 @@ app.add_middleware(
 )
 
 
-@app.get("/lancamentos", response_model=List[schemas.LancamentoOut])
-def listar_todos(db: Session = Depends(get_db)):
-    return db.query(models.Lancamento).order_by(models.Lancamento.data).all()
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def get_saldo_inicial(db: Session) -> float:
+    cfg = db.query(models.Config).filter(models.Config.chave == "saldo_inicial").first()
+    return float(cfg.valor) if cfg else 0.0
 
 
-@app.get("/lancamentos/mes/{ano}/{mes}", response_model=List[schemas.LancamentoOut])
-def listar_por_mes(ano: int, mes: int, db: Session = Depends(get_db)):
+def calcular_saldo_ate(db: Session, ate: date) -> float:
+    """Retorna saldo_inicial + todas as entradas - todas as saídas até 'ate' (inclusive)."""
+    saldo = get_saldo_inicial(db)
+    transacoes = (
+        db.query(models.Transacao)
+        .filter(models.Transacao.data <= ate)
+        .all()
+    )
+    for t in transacoes:
+        if t.tipo == "entrada":
+            saldo += t.valor
+        else:
+            saldo -= t.valor
+    return saldo
+
+
+# ── config ────────────────────────────────────────────────────────────────────
+
+@app.get("/config/saldo_inicial")
+def ler_saldo_inicial(db: Session = Depends(get_db)):
+    return {"valor": get_saldo_inicial(db)}
+
+
+@app.put("/config/saldo_inicial")
+def definir_saldo_inicial(body: dict, db: Session = Depends(get_db)):
+    valor = str(body.get("valor", 0))
+    cfg = db.query(models.Config).filter(models.Config.chave == "saldo_inicial").first()
+    if cfg:
+        cfg.valor = valor
+    else:
+        db.add(models.Config(chave="saldo_inicial", valor=valor))
+    db.commit()
+    return {"valor": float(valor)}
+
+
+# ── transações ───────────────────────────────────────────────────────────────
+
+@app.get("/transacoes/{ano}/{mes}/{dia}", response_model=List[schemas.TransacaoOut])
+def listar_transacoes_dia(ano: int, mes: int, dia: int, db: Session = Depends(get_db)):
+    d = date(ano, mes, dia)
     return (
-        db.query(models.Lancamento)
-        .filter(models.Lancamento.ano == ano, models.Lancamento.mes == mes)
-        .order_by(models.Lancamento.data)
+        db.query(models.Transacao)
+        .filter(models.Transacao.data == d)
+        .order_by(models.Transacao.id)
         .all()
     )
 
 
-@app.post("/lancamentos", response_model=schemas.LancamentoOut, status_code=201)
-def criar(lancamento: schemas.LancamentoCreate, db: Session = Depends(get_db)):
-    db_item = models.Lancamento(
-        data=lancamento.data,
-        mes=lancamento.data.month,
-        ano=lancamento.data.year,
-        entrada=lancamento.entrada,
-        saida=lancamento.saida,
-        diario=lancamento.diario,
-        saldo=lancamento.saldo,
+@app.post("/transacoes", response_model=schemas.TransacaoOut, status_code=201)
+def criar_transacao(dados: schemas.TransacaoCreate, db: Session = Depends(get_db)):
+    if dados.tipo not in ("entrada", "saida"):
+        raise HTTPException(status_code=400, detail="tipo deve ser 'entrada' ou 'saida'")
+
+    # Transação principal
+    t = models.Transacao(
+        data=dados.data,
+        mes=dados.data.month,
+        ano=dados.data.year,
+        tipo=dados.tipo,
+        valor=dados.valor,
+        descricao=dados.descricao,
+        recorrente=dados.recorrente,
     )
-    db.add(db_item)
+    db.add(t)
+
+    # Se recorrente, cria cópias independentes nos meses restantes do mesmo ano
+    if dados.recorrente:
+        dia = dados.data.day
+        ano = dados.data.year
+        for mes_futuro in range(dados.data.month + 1, 13):
+            # Verifica se o dia existe no mês futuro
+            max_dia = calendar.monthrange(ano, mes_futuro)[1]
+            if dia > max_dia:
+                continue  # pula meses onde o dia não existe (ex: dia 31 em fevereiro)
+            copia = models.Transacao(
+                data=date(ano, mes_futuro, dia),
+                mes=mes_futuro,
+                ano=ano,
+                tipo=dados.tipo,
+                valor=dados.valor,
+                descricao=dados.descricao,
+                recorrente=False,  # cópias são independentes
+            )
+            db.add(copia)
+
     db.commit()
-    db.refresh(db_item)
-    return db_item
+    db.refresh(t)
+    return t
 
 
-@app.put("/lancamentos/{id}", response_model=schemas.LancamentoOut)
-def editar(id: int, dados: schemas.LancamentoUpdate, db: Session = Depends(get_db)):
-    item = db.query(models.Lancamento).filter(models.Lancamento.id == id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
+@app.put("/transacoes/{id}", response_model=schemas.TransacaoOut)
+def editar_transacao(id: int, dados: schemas.TransacaoUpdate, db: Session = Depends(get_db)):
+    t = db.query(models.Transacao).filter(models.Transacao.id == id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Transação não encontrada")
     for campo, valor in dados.model_dump(exclude_unset=True).items():
-        setattr(item, campo, valor)
+        setattr(t, campo, valor)
     db.commit()
-    db.refresh(item)
-    return item
+    db.refresh(t)
+    return t
 
 
-@app.delete("/lancamentos/{id}", status_code=204)
-def excluir(id: int, db: Session = Depends(get_db)):
-    item = db.query(models.Lancamento).filter(models.Lancamento.id == id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
-    db.delete(item)
+@app.delete("/transacoes/{id}", status_code=204)
+def excluir_transacao(id: int, db: Session = Depends(get_db)):
+    t = db.query(models.Transacao).filter(models.Transacao.id == id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Transação não encontrada")
+    db.delete(t)
     db.commit()
 
+
+# ── dias do mês ───────────────────────────────────────────────────────────────
+
+@app.get("/dias/{ano}/{mes}", response_model=List[schemas.DiaResumo])
+def dias_do_mes(ano: int, mes: int, db: Session = Depends(get_db)):
+    hoje = date.today()
+    total_dias = calendar.monthrange(ano, mes)[1]
+
+    # Busca todas as transações do mês de uma vez
+    transacoes_mes = (
+        db.query(models.Transacao)
+        .filter(models.Transacao.ano == ano, models.Transacao.mes == mes)
+        .all()
+    )
+
+    # Agrupa por dia
+    por_dia: dict[int, dict] = {}
+    for t in transacoes_mes:
+        d = t.data.day
+        if d not in por_dia:
+            por_dia[d] = {"entradas": 0.0, "saidas": 0.0}
+        if t.tipo == "entrada":
+            por_dia[d]["entradas"] += t.valor
+        else:
+            por_dia[d]["saidas"] += t.valor
+
+    # Calcula saldo acumulado até o dia anterior ao mês
+    primeiro_dia = date(ano, mes, 1)
+    dia_anterior = date(ano, mes, 1).replace(day=1)
+    # saldo até o último dia do mês anterior
+    from datetime import timedelta
+    dia_antes_do_mes = primeiro_dia - timedelta(days=1)
+    saldo_acumulado = calcular_saldo_ate(db, dia_antes_do_mes)
+
+    resultado = []
+    for dia in range(1, total_dias + 1):
+        d = date(ano, mes, dia)
+        entradas = por_dia.get(dia, {}).get("entradas", 0.0)
+        saidas = por_dia.get(dia, {}).get("saidas", 0.0)
+        saldo_acumulado = saldo_acumulado + entradas - saidas
+
+        resultado.append(schemas.DiaResumo(
+            dia=dia,
+            data=d,
+            entradas=entradas,
+            saidas=saidas,
+            saldo=saldo_acumulado,
+            is_future=d > hoje,
+            has_transactions=dia in por_dia,
+        ))
+
+    return resultado
+
+
+# ── resumo anual ──────────────────────────────────────────────────────────────
 
 @app.get("/resumo/{ano}", response_model=List[schemas.ResumoMes])
 def resumo_anual(ano: int, db: Session = Depends(get_db)):
+    hoje = date.today()
     resultado = []
+
+    # Saldo acumulado começa do saldo_inicial
+    saldo = get_saldo_inicial(db)
+
     for mes in range(1, 13):
-        registros = (
-            db.query(models.Lancamento)
-            .filter(models.Lancamento.ano == ano, models.Lancamento.mes == mes)
+        transacoes = (
+            db.query(models.Transacao)
+            .filter(models.Transacao.ano == ano, models.Transacao.mes == mes)
             .all()
         )
-        total_entradas = sum(r.entrada or 0 for r in registros)
-        total_saidas = sum(r.saida or 0 for r in registros)
-        total_diario = sum(r.diario or 0 for r in registros)
-        saida_total = total_saidas + total_diario
-        performance = total_entradas - saida_total
-        ultimo = max((r for r in registros if r.saldo is not None), key=lambda r: r.data, default=None)
-        resultado.append(
-            schemas.ResumoMes(
-                mes=mes,
-                ano=ano,
-                total_entradas=total_entradas,
-                total_saidas=total_saidas,
-                total_diario=total_diario,
-                saida_total=saida_total,
-                performance=performance,
-                saldo_final=ultimo.saldo if ultimo else None,
-            )
-        )
+        total_entradas = sum(t.valor for t in transacoes if t.tipo == "entrada")
+        total_saidas = sum(t.valor for t in transacoes if t.tipo == "saida")
+        saldo += total_entradas - total_saidas
+
+        resultado.append(schemas.ResumoMes(
+            mes=mes,
+            ano=ano,
+            total_entradas=total_entradas,
+            total_saidas=total_saidas,
+            performance=total_entradas - total_saidas,
+            saldo_final=saldo,
+        ))
+
     return resultado
+
+
+# ── saldo atual ───────────────────────────────────────────────────────────────
+
+@app.get("/saldo_atual")
+def saldo_atual(db: Session = Depends(get_db)):
+    hoje = date.today()
+    saldo = calcular_saldo_ate(db, hoje)
+    return {"saldo": saldo, "data": hoje.isoformat()}

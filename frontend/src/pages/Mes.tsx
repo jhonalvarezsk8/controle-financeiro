@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { getLancamentosMes, criarLancamento, getResumoAnual, type Lancamento, type ResumoMes } from "../api";
+import { getDiasMes, getResumoAnual, type DiaResumo, type ResumoMes } from "../api";
 import TabelaMes from "../components/TabelaMes";
-import FormLancamento from "../components/FormLancamento";
 
 const MESES = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
 
+const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const ANO = new Date().getFullYear();
 
 export default function Mes() {
@@ -16,31 +16,26 @@ export default function Mes() {
   const navigate = useNavigate();
   const mesNum = parseInt(mes ?? "1");
 
-  const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
+  const [dias, setDias] = useState<DiaResumo[]>([]);
   const [resumo, setResumo] = useState<ResumoMes | null>(null);
-  const [adicionando, setAdicionando] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   async function carregar() {
-    const [lancs, resumoAnual] = await Promise.all([
-      getLancamentosMes(ANO, mesNum),
+    setLoading(true);
+    const [diasData, resumoAnual] = await Promise.all([
+      getDiasMes(ANO, mesNum),
       getResumoAnual(ANO),
     ]);
-    setLancamentos(lancs);
+    setDias(diasData);
     setResumo(resumoAnual.find((r) => r.mes === mesNum) ?? null);
+    setLoading(false);
   }
 
   useEffect(() => {
     carregar();
-    setAdicionando(false);
   }, [mesNum]);
 
-  async function handleNovo(dados: any) {
-    await criarLancamento(dados);
-    setAdicionando(false);
-    carregar();
-  }
-
-  const hoje = new Date().toISOString().split("T")[0];
+  const saldoFinal = dias.at(-1)?.saldo ?? 0;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
@@ -68,47 +63,47 @@ export default function Mes() {
         </div>
       </div>
 
-      {/* Cards resumo do mês */}
+      {/* Cards resumo */}
       {resumo && (
         <div className="grid grid-cols-2 gap-3 mb-5 sm:grid-cols-4">
           <MiniCard label="Entradas" value={resumo.total_entradas} color="green" />
-          <MiniCard label="Saídas" value={resumo.saida_total} color="red" />
-          <MiniCard label="Performance" value={resumo.performance} color={resumo.performance >= 0 ? "green" : "red"} />
-          <MiniCard label="Saldo Final" value={resumo.saldo_final} color="blue" />
+          <MiniCard label="Saídas" value={resumo.total_saidas} color="red" />
+          <MiniCard label="Variável" value={resumo.performance} color={resumo.performance >= 0 ? "green" : "red"} />
+          <MiniCard label="Saldo Final" value={saldoFinal} color="blue" />
         </div>
       )}
 
-      {/* Tabela */}
+      {/* Legenda */}
+      <div className="flex gap-4 text-xs text-gray-500 mb-3">
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded-sm bg-blue-100 border border-blue-300"></span>
+          Hoje
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded-sm bg-white border border-gray-200"></span>
+          Futuro (projeção)
+        </span>
+        <span className="text-gray-400">Clique em "Ver detalhes" para registrar transações em um dia</span>
+      </div>
+
+      {/* Tabela de dias */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-          <h2 className="text-sm font-semibold text-gray-700">Lançamentos</h2>
-          <button
-            onClick={() => setAdicionando(true)}
-            className="px-3 py-1.5 text-sm text-white bg-blue-600 rounded hover:bg-blue-700"
-          >
-            + Novo lançamento
-          </button>
+        <div className="px-4 py-3 border-b border-gray-100">
+          <h2 className="text-sm font-semibold text-gray-700">
+            Fluxo de Caixa — {MESES[mesNum - 1]}
+          </h2>
         </div>
-
-        {adicionando && (
-          <div className="px-4 py-3 border-b border-blue-100 bg-blue-50">
-            <FormLancamento
-              dataInicial={hoje}
-              onSalvar={handleNovo}
-              onCancelar={() => setAdicionando(false)}
-            />
-          </div>
+        {loading ? (
+          <p className="text-center text-gray-400 py-10">Carregando...</p>
+        ) : (
+          <TabelaMes diasResumo={dias} mes={mesNum} ano={ANO} />
         )}
-
-        <div className="px-2 py-2">
-          <TabelaMes lancamentos={lancamentos} onChange={carregar} />
-        </div>
       </div>
     </div>
   );
 }
 
-function MiniCard({ label, value, color }: { label: string; value: number | null; color: string }) {
+function MiniCard({ label, value, color }: { label: string; value: number; color: string }) {
   const colors: Record<string, string> = {
     blue: "text-blue-700",
     green: "text-green-700",
@@ -118,9 +113,7 @@ function MiniCard({ label, value, color }: { label: string; value: number | null
     <div className="bg-white rounded-lg p-3 shadow-sm border border-gray-200">
       <p className="text-xs text-gray-500 mb-0.5">{label}</p>
       <p className={`text-base font-bold ${colors[color] ?? "text-gray-800"}`}>
-        {value !== null && value !== undefined
-          ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
-          : "—"}
+        {BRL.format(value)}
       </p>
     </div>
   );

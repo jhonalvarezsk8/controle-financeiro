@@ -1,91 +1,89 @@
-import { useState } from "react";
-import type { Lancamento, LancamentoUpdate } from "../api";
-import { editarLancamento, excluirLancamento } from "../api";
-import FormLancamento from "./FormLancamento";
+import { Link } from "react-router-dom";
+import type { DiaResumo } from "../api";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-const fmt = (v: number | null) => (v !== null && v !== undefined ? BRL.format(v) : "—");
+const fmt = (v: number) => BRL.format(v);
 
 interface Props {
-  lancamentos: Lancamento[];
-  onChange: () => void;
+  diasResumo: DiaResumo[];
+  mes: number;
+  ano: number;
 }
 
-export default function TabelaMes({ lancamentos, onChange }: Props) {
-  const [editandoId, setEditandoId] = useState<number | null>(null);
-
-  async function handleEditar(id: number, dados: LancamentoUpdate) {
-    await editarLancamento(id, dados);
-    setEditandoId(null);
-    onChange();
-  }
-
-  async function handleExcluir(id: number) {
-    if (!confirm("Excluir este lançamento?")) return;
-    await excluirLancamento(id);
-    onChange();
-  }
-
-  if (lancamentos.length === 0) {
-    return (
-      <p className="text-center text-gray-400 py-10">
-        Nenhum lançamento neste mês. Clique em "+ Novo lançamento" para começar.
-      </p>
-    );
-  }
+export default function TabelaMes({ diasResumo, mes, ano }: Props) {
+  const hoje = new Date();
+  const diaHoje = hoje.getDate();
+  const mesHoje = hoje.getMonth() + 1;
+  const anoHoje = hoje.getFullYear();
+  const ehMesAtual = mes === mesHoje && ano === anoHoje;
 
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-gray-500 border-b border-gray-200">
-            <th className="py-2 px-3 font-medium">Data</th>
-            <th className="py-2 px-3 font-medium text-right">Entrada</th>
-            <th className="py-2 px-3 font-medium text-right">Saída</th>
-            <th className="py-2 px-3 font-medium text-right">Diário</th>
-            <th className="py-2 px-3 font-medium text-right">Saldo</th>
-            <th className="py-2 px-3 font-medium"></th>
+          <tr className="text-left text-gray-500 border-b border-gray-200 bg-gray-50">
+            <th className="py-2 px-4 font-medium">Dia</th>
+            <th className="py-2 px-4 font-medium text-right">Entradas</th>
+            <th className="py-2 px-4 font-medium text-right">Saídas</th>
+            <th className="py-2 px-4 font-medium text-right">Saldo</th>
+            <th className="py-2 px-4 font-medium"></th>
           </tr>
         </thead>
         <tbody>
-          {lancamentos.map((l) => (
-            <>
-              <tr key={l.id} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="py-2 px-3 text-gray-700">
-                  {new Date(l.data + "T12:00:00").toLocaleDateString("pt-BR")}
+          {diasResumo.map((d) => {
+            const isHoje = ehMesAtual && d.dia === diaHoje;
+            const isFuture = d.is_future;
+
+            return (
+              <tr
+                key={d.dia}
+                className={`border-b border-gray-100 ${
+                  isHoje
+                    ? "bg-blue-50 font-semibold"
+                    : isFuture
+                    ? "bg-white text-gray-400"
+                    : "hover:bg-gray-50"
+                }`}
+              >
+                <td className="py-2 px-4">
+                  <span className={isHoje ? "text-blue-700 font-bold" : ""}>
+                    {String(d.dia).padStart(2, "0")}/{String(mes).padStart(2, "0")}
+                    {isHoje && (
+                      <span className="ml-2 text-xs bg-blue-600 text-white rounded-full px-2 py-0.5">
+                        hoje
+                      </span>
+                    )}
+                  </span>
                 </td>
-                <td className="py-2 px-3 text-right text-green-700 font-medium">{fmt(l.entrada)}</td>
-                <td className="py-2 px-3 text-right text-red-600">{fmt(l.saida)}</td>
-                <td className="py-2 px-3 text-right text-orange-600">{fmt(l.diario)}</td>
-                <td className="py-2 px-3 text-right text-blue-700 font-semibold">{fmt(l.saldo)}</td>
-                <td className="py-2 px-3 text-right">
-                  <button
-                    onClick={() => setEditandoId(l.id)}
-                    className="text-xs text-blue-600 hover:underline mr-3"
+                <td className={`py-2 px-4 text-right ${d.entradas > 0 ? "text-green-700" : isFuture ? "text-gray-300" : "text-gray-400"}`}>
+                  {d.entradas > 0 ? fmt(d.entradas) : "—"}
+                </td>
+                <td className={`py-2 px-4 text-right ${d.saidas > 0 ? "text-red-600" : isFuture ? "text-gray-300" : "text-gray-400"}`}>
+                  {d.saidas > 0 ? fmt(d.saidas) : "—"}
+                </td>
+                <td className={`py-2 px-4 text-right font-semibold ${
+                  isFuture
+                    ? "text-gray-400"
+                    : d.saldo >= 0
+                    ? "text-blue-700"
+                    : "text-red-700"
+                }`}>
+                  {fmt(d.saldo)}
+                  {isFuture && (
+                    <span className="ml-1 text-xs font-normal text-gray-400">(proj.)</span>
+                  )}
+                </td>
+                <td className="py-2 px-4 text-right">
+                  <Link
+                    to={`/mes/${mes}/dia/${d.dia}`}
+                    className="text-xs text-blue-600 hover:underline"
                   >
-                    Editar
-                  </button>
-                  <button
-                    onClick={() => handleExcluir(l.id)}
-                    className="text-xs text-red-500 hover:underline"
-                  >
-                    Excluir
-                  </button>
+                    Ver detalhes
+                  </Link>
                 </td>
               </tr>
-              {editandoId === l.id && (
-                <tr key={`edit-${l.id}`}>
-                  <td colSpan={6} className="px-3 py-2 bg-blue-50">
-                    <FormLancamento
-                      lancamento={l}
-                      onSalvar={(dados) => handleEditar(l.id, dados as LancamentoUpdate)}
-                      onCancelar={() => setEditandoId(null)}
-                    />
-                  </td>
-                </tr>
-              )}
-            </>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

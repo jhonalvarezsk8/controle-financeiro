@@ -3,31 +3,41 @@ from datetime import date
 from typing import Optional
 
 
-class LancamentoBase(BaseModel):
+class TransacaoCreate(BaseModel):
     data: date
-    entrada: Optional[float] = None
-    saida: Optional[float] = None
-    diario: Optional[float] = None
-    saldo: Optional[float] = None
+    tipo: str   # 'entrada' | 'saida'
+    valor: float
+    descricao: Optional[str] = None
+    recorrente: bool = False
 
 
-class LancamentoCreate(LancamentoBase):
-    pass
+class TransacaoUpdate(BaseModel):
+    tipo: Optional[str] = None
+    valor: Optional[float] = None
+    descricao: Optional[str] = None
 
 
-class LancamentoUpdate(BaseModel):
-    entrada: Optional[float] = None
-    saida: Optional[float] = None
-    diario: Optional[float] = None
-    saldo: Optional[float] = None
-
-
-class LancamentoOut(LancamentoBase):
+class TransacaoOut(BaseModel):
     id: int
+    data: date
     mes: int
     ano: int
+    tipo: str
+    valor: float
+    descricao: Optional[str]
+    recorrente: bool
 
     model_config = {"from_attributes": True}
+
+
+class DiaResumo(BaseModel):
+    dia: int
+    data: date
+    entradas: float
+    saidas: float
+    saldo: float
+    is_future: bool
+    has_transactions: bool
 
 
 class ResumoMes(BaseModel):
@@ -35,7 +45,5 @@ class ResumoMes(BaseModel):
     ano: int
     total_entradas: float
     total_saidas: float
-    total_diario: float
-    saida_total: float
     performance: float
-    saldo_final: Optional[float]
+    saldo_final: float
