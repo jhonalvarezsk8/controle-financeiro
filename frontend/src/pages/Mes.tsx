@@ -54,8 +54,10 @@ export default function Mes() {
       {/* Cabeçalho */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <Link to="/" className="text-gray-400 hover:text-gray-600 text-sm">← Dashboard</Link>
-          <h1 className="text-xl font-bold text-gray-800">{MESES[mesNum - 1]} {ANO}</h1>
+          <Link to="/ano" className="text-gray-400 hover:text-gray-600 text-sm">← {ANO}</Link>
+          <Link to="/ano" className="text-xl font-bold text-gray-800 hover:underline">
+            {MESES[mesNum - 1]} {ANO}
+          </Link>
         </div>
         <div className="flex gap-2">
           <button

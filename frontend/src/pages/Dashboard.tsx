@@ -23,6 +23,11 @@ function corSaldo(v: number): string {
   return "text-green-600";
 }
 
+const OPCOES_ANO = ["entradas", "saidas", "performance"] as const;
+type ColunaAno = typeof OPCOES_ANO[number];
+const LABELS_ANO: Record<ColunaAno, string> = { entradas: "Entradas", saidas: "Saídas", performance: "Performance" };
+const ANO_MES_ATUAL = new Date().getMonth() + 1;
+
 export default function Dashboard() {
   const [resumo, setResumo] = useState<ResumoMes[]>([]);
   const [saldoAtual, setSaldoAtual] = useState<number | null>(null);
@@ -30,6 +35,13 @@ export default function Dashboard() {
   const [editandoSaldo, setEditandoSaldo] = useState(false);
   const [novoSaldo, setNovoSaldo] = useState("");
   const [loading, setLoading] = useState(true);
+  const [coluna, setColuna] = useState<ColunaAno>("entradas");
+  function ciclarColuna() {
+    setColuna(c => {
+      const i = OPCOES_ANO.indexOf(c);
+      return OPCOES_ANO[(i + 1) % OPCOES_ANO.length];
+    });
+  }
 
   async function carregar() {
     const [res, sa, si] = await Promise.all([
@@ -62,7 +74,10 @@ export default function Dashboard() {
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Controle Financeiro — {ANO}</h1>
+        <div className="flex items-center gap-3">
+          <Link to={`/mes/${ANO_MES_ATUAL}`} className="text-gray-400 hover:text-gray-600 text-sm">← Mês atual</Link>
+          <h1 className="text-2xl font-bold text-gray-800">Visão Anual — {ANO}</h1>
+        </div>
 
         {/* Saldo inicial editável */}
         <div className="flex items-center gap-2 text-sm">
@@ -116,9 +131,22 @@ export default function Dashboard() {
             <thead>
               <tr className="text-left text-gray-500 border-b border-gray-100 bg-gray-50">
                 <th className="py-2 px-4 font-medium">Mês</th>
-                <th className="py-2 px-4 font-medium text-right">Entradas</th>
-                <th className="py-2 px-4 font-medium text-right">Saídas</th>
-                <th className="py-2 px-4 font-medium text-right">Performance</th>
+
+                {/* Mobile: coluna alternável */}
+                <th className="py-2 px-4 font-medium text-right md:hidden">
+                  <button
+                    onClick={ciclarColuna}
+                    className="flex items-center gap-1 ml-auto text-gray-500 hover:text-gray-700"
+                  >
+                    {LABELS_ANO[coluna]} <span className="text-xs">▼</span>
+                  </button>
+                </th>
+
+                {/* Desktop: todas as colunas */}
+                <th className="hidden md:table-cell py-2 px-4 font-medium text-right">Entradas</th>
+                <th className="hidden md:table-cell py-2 px-4 font-medium text-right">Saídas</th>
+                <th className="hidden md:table-cell py-2 px-4 font-medium text-right">Performance</th>
+
                 <th className="py-2 px-4 font-medium text-right">Saldo Final</th>
                 <th className="py-2 px-4"></th>
               </tr>
@@ -127,23 +155,35 @@ export default function Dashboard() {
               {resumo.map((r) => {
                 const mesAtual = new Date().getMonth() + 1;
                 const isAtual = r.mes === mesAtual;
+
+                const valorMobile = coluna === "entradas" ? r.total_entradas : coluna === "saidas" ? r.total_saidas : r.performance;
+                const corMobile = coluna === "entradas" ? "text-green-700" : coluna === "saidas" ? "text-red-600" : (r.performance >= 0 ? "text-green-700" : "text-red-600");
+
                 return (
                   <tr key={r.mes} className={`border-b border-gray-50 hover:bg-gray-50 ${isAtual ? "bg-blue-50" : ""}`}>
                     <td className={`py-2 px-4 font-medium ${isAtual ? "text-blue-700" : "text-gray-700"}`}>
                       {MESES[r.mes - 1]}
                       {isAtual && <span className="ml-2 text-xs bg-blue-600 text-white rounded-full px-2 py-0.5">atual</span>}
                     </td>
-                    <td className="py-2 px-4 text-right text-green-700">{BRL.format(r.total_entradas)}</td>
-                    <td className="py-2 px-4 text-right text-red-600">{BRL.format(r.total_saidas)}</td>
-                    <td className={`py-2 px-4 text-right font-semibold ${r.performance >= 0 ? "text-green-700" : "text-red-600"}`}>
+
+                    {/* Mobile: coluna ativa */}
+                    <td className={`md:hidden py-2 px-4 text-right font-semibold ${corMobile}`}>
+                      {BRL.format(valorMobile)}
+                    </td>
+
+                    {/* Desktop: todas */}
+                    <td className="hidden md:table-cell py-2 px-4 text-right text-green-700">{BRL.format(r.total_entradas)}</td>
+                    <td className="hidden md:table-cell py-2 px-4 text-right text-red-600">{BRL.format(r.total_saidas)}</td>
+                    <td className={`hidden md:table-cell py-2 px-4 text-right font-semibold ${r.performance >= 0 ? "text-green-700" : "text-red-600"}`}>
                       {BRL.format(r.performance)}
                     </td>
+
                     <td className={`py-2 px-4 text-right font-semibold ${corSaldo(r.saldo_final)}`}>
                       {BRL.format(r.saldo_final)}
                     </td>
                     <td className="py-2 px-4 text-right">
                       <Link to={`/mes/${r.mes}`} className="text-xs text-blue-600 hover:underline">
-                        Ver mês
+                        Ver
                       </Link>
                     </td>
                   </tr>
