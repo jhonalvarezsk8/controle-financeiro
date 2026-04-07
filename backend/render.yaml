@@ -9,3 +9,7 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false

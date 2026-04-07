@@ -1,11 +1,14 @@
 import os
+import secrets
 import calendar
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import List
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+from jose import JWTError, jwt
 
 import models
 import schemas
@@ -20,6 +23,12 @@ ALLOWED_ORIGINS = os.getenv(
     "http://localhost:5173"
 ).split(",")
 
+APP_PASSWORD = os.getenv("APP_PASSWORD", "")
+JWT_SECRET = os.getenv("JWT_SECRET", "changeme")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_DAYS = 30
+bearer_scheme = HTTPBearer()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -27,6 +36,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── auth ─────────────────────────────────────────────────────────────────────
+
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
+    try:
+        jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido ou expirado")
+
+
+@app.post("/login")
+def login(body: dict):
+    senha = body.get("senha", "")
+    if not APP_PASSWORD:
+        raise HTTPException(status_code=500, detail="APP_PASSWORD não configurado")
+    if not secrets.compare_digest(senha, APP_PASSWORD):
+        raise HTTPException(status_code=401, detail="Senha incorreta")
+    expire = datetime.utcnow() + timedelta(days=JWT_EXPIRE_DAYS)
+    token = jwt.encode({"sub": "user", "exp": expire}, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return {"access_token": token, "token_type": "bearer"}
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -55,12 +85,12 @@ def calcular_saldo_ate(db: Session, ate: date) -> float:
 # ── config ────────────────────────────────────────────────────────────────────
 
 @app.get("/config/saldo_inicial")
-def ler_saldo_inicial(db: Session = Depends(get_db)):
+def ler_saldo_inicial(db: Session = Depends(get_db), _=Depends(verify_token)):
     return {"valor": get_saldo_inicial(db)}
 
 
 @app.put("/config/saldo_inicial")
-def definir_saldo_inicial(body: dict, db: Session = Depends(get_db)):
+def definir_saldo_inicial(body: dict, db: Session = Depends(get_db), _=Depends(verify_token)):
     valor = str(body.get("valor", 0))
     cfg = db.query(models.Config).filter(models.Config.chave == "saldo_inicial").first()
     if cfg:
@@ -74,7 +104,7 @@ def definir_saldo_inicial(body: dict, db: Session = Depends(get_db)):
 # ── transações ───────────────────────────────────────────────────────────────
 
 @app.get("/transacoes/{ano}/{mes}/{dia}", response_model=List[schemas.TransacaoOut])
-def listar_transacoes_dia(ano: int, mes: int, dia: int, db: Session = Depends(get_db)):
+def listar_transacoes_dia(ano: int, mes: int, dia: int, db: Session = Depends(get_db), _=Depends(verify_token)):
     d = date(ano, mes, dia)
     return (
         db.query(models.Transacao)
@@ -85,7 +115,7 @@ def listar_transacoes_dia(ano: int, mes: int, dia: int, db: Session = Depends(ge
 
 
 @app.post("/transacoes", response_model=schemas.TransacaoOut, status_code=201)
-def criar_transacao(dados: schemas.TransacaoCreate, db: Session = Depends(get_db)):
+def criar_transacao(dados: schemas.TransacaoCreate, db: Session = Depends(get_db), _=Depends(verify_token)):
     if dados.tipo not in ("entrada", "saida"):
         raise HTTPException(status_code=400, detail="tipo deve ser 'entrada' ou 'saida'")
 
@@ -127,7 +157,7 @@ def criar_transacao(dados: schemas.TransacaoCreate, db: Session = Depends(get_db
 
 
 @app.put("/transacoes/{id}", response_model=schemas.TransacaoOut)
-def editar_transacao(id: int, dados: schemas.TransacaoUpdate, db: Session = Depends(get_db)):
+def editar_transacao(id: int, dados: schemas.TransacaoUpdate, db: Session = Depends(get_db), _=Depends(verify_token)):
     t = db.query(models.Transacao).filter(models.Transacao.id == id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Transação não encontrada")
@@ -139,7 +169,7 @@ def editar_transacao(id: int, dados: schemas.TransacaoUpdate, db: Session = Depe
 
 
 @app.delete("/transacoes/{id}", status_code=204)
-def excluir_transacao(id: int, db: Session = Depends(get_db)):
+def excluir_transacao(id: int, db: Session = Depends(get_db), _=Depends(verify_token)):
     t = db.query(models.Transacao).filter(models.Transacao.id == id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Transação não encontrada")
@@ -150,7 +180,7 @@ def excluir_transacao(id: int, db: Session = Depends(get_db)):
 # ── dias do mês ───────────────────────────────────────────────────────────────
 
 @app.get("/dias/{ano}/{mes}", response_model=List[schemas.DiaResumo])
-def dias_do_mes(ano: int, mes: int, db: Session = Depends(get_db)):
+def dias_do_mes(ano: int, mes: int, db: Session = Depends(get_db), _=Depends(verify_token)):
     hoje = date.today()
     total_dias = calendar.monthrange(ano, mes)[1]
 
@@ -203,7 +233,7 @@ def dias_do_mes(ano: int, mes: int, db: Session = Depends(get_db)):
 # ── resumo anual ──────────────────────────────────────────────────────────────
 
 @app.get("/resumo/{ano}", response_model=List[schemas.ResumoMes])
-def resumo_anual(ano: int, db: Session = Depends(get_db)):
+def resumo_anual(ano: int, db: Session = Depends(get_db), _=Depends(verify_token)):
     hoje = date.today()
     resultado = []
 
@@ -235,7 +265,7 @@ def resumo_anual(ano: int, db: Session = Depends(get_db)):
 # ── saldo atual ───────────────────────────────────────────────────────────────
 
 @app.get("/saldo_atual")
-def saldo_atual(db: Session = Depends(get_db)):
+def saldo_atual(db: Session = Depends(get_db), _=Depends(verify_token)):
     hoje = date.today()
     saldo = calcular_saldo_ate(db, hoje)
     return {"saldo": saldo, "data": hoje.isoformat()}
