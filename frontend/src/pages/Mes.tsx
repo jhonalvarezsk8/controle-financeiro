@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { getDiasMes, getResumoAnual, type DiaResumo, type ResumoMes } from "../api";
+import { getDiasMes, getResumoAnual, getSaldoAtual, type DiaResumo, type ResumoMes } from "../api";
 import TabelaMes from "../components/TabelaMes";
 
 const MESES = [
@@ -11,6 +11,12 @@ const MESES = [
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const ANO = new Date().getFullYear();
 
+function corSaldo(v: number): string {
+  if (v < 0) return "text-red-600";
+  if (v <= 100) return "text-yellow-500";
+  return "text-green-600";
+}
+
 export default function Mes() {
   const { mes } = useParams<{ mes: string }>();
   const navigate = useNavigate();
@@ -18,16 +24,19 @@ export default function Mes() {
 
   const [dias, setDias] = useState<DiaResumo[]>([]);
   const [resumo, setResumo] = useState<ResumoMes | null>(null);
+  const [saldoAtual, setSaldoAtualState] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function carregar() {
     setLoading(true);
-    const [diasData, resumoAnual] = await Promise.all([
+    const [diasData, resumoAnual, sa] = await Promise.all([
       getDiasMes(ANO, mesNum),
       getResumoAnual(ANO),
+      getSaldoAtual(),
     ]);
     setDias(diasData);
     setResumo(resumoAnual.find((r) => r.mes === mesNum) ?? null);
+    setSaldoAtualState(sa.saldo);
     setLoading(false);
   }
 
@@ -35,7 +44,10 @@ export default function Mes() {
     carregar();
   }, [mesNum]);
 
-  const saldoFinal = dias.at(-1)?.saldo ?? 0;
+  const mesAtualNum = new Date().getMonth() + 1;
+  const ehMesAtualOuFuturo = mesNum >= mesAtualNum;
+  const saldoD29 = dias.find((d) => d.dia === 29)?.saldo ?? null;
+  const saldoFimMes = dias.at(-1)?.saldo ?? null;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
@@ -69,7 +81,36 @@ export default function Mes() {
           <MiniCard label="Entradas" value={resumo.total_entradas} color="green" />
           <MiniCard label="Saídas" value={resumo.total_saidas} color="red" />
           <MiniCard label="Variável" value={resumo.performance} color={resumo.performance >= 0 ? "green" : "red"} />
-          <MiniCard label="Saldo Final" value={saldoFinal} color="blue" />
+          <MiniCard label="Saldo Atual" value={saldoAtual ?? 0} colorClass={corSaldo(saldoAtual ?? 0)} />
+        </div>
+      )}
+
+      {/* Painel de margem de gasto */}
+      {ehMesAtualOuFuturo && (saldoD29 !== null || saldoFimMes !== null) && (
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 mb-5">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Margem de gasto disponível</p>
+          <div className="grid grid-cols-2 gap-4">
+            {saldoD29 !== null && (
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Pode gastar até o dia 14</p>
+                <p className={`text-lg font-bold ${corSaldo(saldoD29)}`}>{BRL.format(saldoD29)}</p>
+                {saldoD29 < 0 && (
+                  <p className="text-xs text-red-500 mt-0.5">Contas já superam o saldo atual</p>
+                )}
+                <p className="text-xs text-gray-400 mt-0.5">sem ficar negativo até o dia 29</p>
+              </div>
+            )}
+            {saldoFimMes !== null && (
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Pode gastar até o dia 29</p>
+                <p className={`text-lg font-bold ${corSaldo(saldoFimMes)}`}>{BRL.format(saldoFimMes)}</p>
+                {saldoFimMes < 0 && (
+                  <p className="text-xs text-red-500 mt-0.5">Contas já superam o saldo atual</p>
+                )}
+                <p className="text-xs text-gray-400 mt-0.5">sem fechar o mês no negativo</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -103,16 +144,17 @@ export default function Mes() {
   );
 }
 
-function MiniCard({ label, value, color }: { label: string; value: number; color: string }) {
+function MiniCard({ label, value, color, colorClass }: { label: string; value: number; color?: string; colorClass?: string }) {
   const colors: Record<string, string> = {
     blue: "text-blue-700",
     green: "text-green-700",
     red: "text-red-600",
   };
+  const cls = colorClass ?? (color ? (colors[color] ?? "text-gray-800") : "text-gray-800");
   return (
     <div className="bg-white rounded-lg p-3 shadow-sm border border-gray-200">
       <p className="text-xs text-gray-500 mb-0.5">{label}</p>
-      <p className={`text-base font-bold ${colors[color] ?? "text-gray-800"}`}>
+      <p className={`text-base font-bold ${cls}`}>
         {BRL.format(value)}
       </p>
     </div>

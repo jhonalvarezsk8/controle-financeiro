@@ -4,6 +4,12 @@ import type { DiaResumo } from "../api";
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const fmt = (v: number) => BRL.format(v);
 
+function corSaldo(v: number): string {
+  if (v < 0) return "text-red-600";
+  if (v <= 100) return "text-yellow-500";
+  return "text-green-600";
+}
+
 interface Props {
   diasResumo: DiaResumo[];
   mes: number;
@@ -61,13 +67,7 @@ export default function TabelaMes({ diasResumo, mes, ano }: Props) {
                 <td className={`py-2 px-4 text-right ${d.saidas > 0 ? "text-red-600" : isFuture ? "text-gray-300" : "text-gray-400"}`}>
                   {d.saidas > 0 ? fmt(d.saidas) : "—"}
                 </td>
-                <td className={`py-2 px-4 text-right font-semibold ${
-                  isFuture
-                    ? "text-gray-400"
-                    : d.saldo >= 0
-                    ? "text-blue-700"
-                    : "text-red-700"
-                }`}>
+                <td className={`py-2 px-4 text-right font-semibold ${corSaldo(d.saldo)}`}>
                   {fmt(d.saldo)}
                   {isFuture && (
                     <span className="ml-1 text-xs font-normal text-gray-400">(proj.)</span>

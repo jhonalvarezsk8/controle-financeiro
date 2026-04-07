@@ -17,6 +17,12 @@ const MESES = [
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const ANO = new Date().getFullYear();
 
+function corSaldo(v: number): string {
+  if (v < 0) return "text-red-600";
+  if (v <= 100) return "text-yellow-500";
+  return "text-green-600";
+}
+
 export default function Dashboard() {
   const [resumo, setResumo] = useState<ResumoMes[]>([]);
   const [saldoAtual, setSaldoAtual] = useState<number | null>(null);
@@ -132,7 +138,7 @@ export default function Dashboard() {
                     <td className={`py-2 px-4 text-right font-semibold ${r.performance >= 0 ? "text-green-700" : "text-red-600"}`}>
                       {BRL.format(r.performance)}
                     </td>
-                    <td className="py-2 px-4 text-right text-blue-700 font-semibold">
+                    <td className={`py-2 px-4 text-right font-semibold ${corSaldo(r.saldo_final)}`}>
                       {BRL.format(r.saldo_final)}
                     </td>
                     <td className="py-2 px-4 text-right">
