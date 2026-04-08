@@ -95,6 +95,44 @@ cd backend
 python migrate.py "postgresql://..."
 ```
 
+## Receipt Import (Gmail → App)
+
+Automated pipeline that reads receipt photos sent by email and creates transactions automatically.
+
+### How it works
+1. Take a photo of a receipt → send email to yourself (`jhonalvarezskate@gmail.com`) with the image attached
+2. Script detects the unread email, extracts data via OCR, creates the transaction in the backend
+3. Email is marked as read after successful processing
+
+### Script location
+```
+C:\Users\jhona\gmail_recibos\gmail_recibos.py
+```
+
+### Run manually
+```bash
+python C:\Users\jhona\gmail_recibos\gmail_recibos.py
+```
+
+### Scheduling
+Windows Task Scheduler task named `ImportadorRecibos` — runs every hour automatically.
+Log output: `C:\Users\jhona\gmail_recibos\log.txt`
+
+### Dependencies & credentials
+- **Gmail OAuth**: credentials at `C:\Users\jhona\.gmail-mcp\credentials.json` (refresh token stored)
+- **OCR**: EasyOCR (local, free, no API key needed) — models downloaded on first run (~500MB)
+- **Vision**: extracts `valor`, `data`, `tipo`, `descricao` from receipt image via regex parsing of OCR text
+- **Backend**: POSTs to `https://controle-financeiro-kk70.onrender.com` — note: Render free tier sleeps, first request may take ~60s (timeout set to 90s)
+
+### Gmail MCP (local)
+Configured in `~/.claude.json` for local Claude Code use:
+```json
+{ "gmail": { "command": "npx", "args": ["@shinzolabs/gmail-mcp"] } }
+```
+Auth token: `C:\Users\jhona\.gmail-mcp\credentials.json`
+
+---
+
 ## GitHub Repository
 
 - **URL**: https://github.com/jhonalvarezsk8/controle-financeiro
