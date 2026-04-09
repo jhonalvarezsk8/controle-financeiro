@@ -104,6 +104,10 @@ Automated pipeline that reads receipt photos sent by email and creates transacti
 2. Script detects the unread email, extracts data via OCR, creates the transaction in the backend
 3. Email is marked as read after successful processing
 
+### Transaction type (tipo) logic
+- **Subject "Entrada"** → `tipo = "entrada"` (overrides OCR result)
+- **No subject / any other subject** → `tipo = "saida"` by default; OCR may upgrade to `"entrada"` if receipt text contains keywords like `pix recebido`, `deposito`, `credito`, `recebimento`, `entrada`
+
 ### Script location
 ```
 C:\Users\jhona\gmail_recibos\gmail_recibos.py
