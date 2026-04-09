@@ -119,7 +119,7 @@ python C:\Users\jhona\gmail_recibos\gmail_recibos.py
 ```
 
 ### Scheduling
-Windows Task Scheduler task named `ImportadorRecibos` — runs every hour automatically.
+Windows Task Scheduler task named `ImportadorRecibos` — runs every **30 minutes** automatically.
 Log output: `C:\Users\jhona\gmail_recibos\log.txt`
 
 ### Dependencies & credentials
