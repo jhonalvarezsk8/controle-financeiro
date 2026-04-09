@@ -101,7 +101,7 @@ Automated pipeline that reads receipt photos sent by email and creates transacti
 
 ### How it works
 1. Take a photo of a receipt → send email to yourself (`jhonalvarezskate@gmail.com`) with the image attached
-2. Script detects the unread email, extracts data via OCR, creates the transaction in the backend
+2. GitHub Actions detects the unread email every 5 minutes, extracts data via OCR, creates the transaction in the backend
 3. Email is marked as read after successful processing
 
 ### Transaction type (tipo) logic
@@ -110,23 +110,38 @@ Automated pipeline that reads receipt photos sent by email and creates transacti
 
 ### Script location
 ```
-C:\Users\jhona\gmail_recibos\gmail_recibos.py
+scripts/gmail_recibos.py         ← versão atual (GitHub Actions + local)
+C:\Users\jhona\gmail_recibos\gmail_recibos.py  ← cópia antiga (não usar)
 ```
 
-### Run manually
+### Run manually (local)
 ```bash
-python C:\Users\jhona\gmail_recibos\gmail_recibos.py
+python scripts/gmail_recibos.py
 ```
+Requer arquivos de credencial em `~/.gmail-mcp/` e as variáveis de ambiente ou fallback local.
 
-### Scheduling
-Windows Task Scheduler task named `ImportadorRecibos` — runs every **30 minutes** automatically.
-Log output: `C:\Users\jhona\gmail_recibos\log.txt`
+### Scheduling — GitHub Actions
+Workflow: `.github/workflows/verificar-recibos.yml`
+- Roda automaticamente a cada **5 minutos** via cron
+- Trigger manual: GitHub → Actions → Verificar Recibos → Run workflow
+- Windows Task Scheduler `ImportadorRecibos` está **desabilitado** (migrado para Actions)
+
+### GitHub Secrets necessários
+| Secret | Descrição |
+|---|---|
+| `GMAIL_CREDENTIALS_JSON` | Conteúdo de `~/.gmail-mcp/credentials.json` |
+| `GMAIL_OAUTH_KEYS_JSON` | Conteúdo de `~/.gmail-mcp/gcp-oauth.keys.json` |
+| `APP_PASSWORD` | Senha do backend |
+| `MY_EMAIL` | `jhonalvarezskate@gmail.com` |
+| `BACKEND_URL` | `https://controle-financeiro-kk70.onrender.com` |
+
+Ver instruções completas em `scripts/SETUP.md`.
 
 ### Dependencies & credentials
 - **Gmail OAuth**: credentials at `C:\Users\jhona\.gmail-mcp\credentials.json` (refresh token stored)
-- **OCR**: EasyOCR (local, free, no API key needed) — models downloaded on first run (~500MB)
+- **OCR**: EasyOCR (local, free, no API key needed) — models cached in GitHub Actions (~500MB, chave `easyocr-models-v1`)
 - **Vision**: extracts `valor`, `data`, `tipo`, `descricao` from receipt image via regex parsing of OCR text
-- **Backend**: POSTs to `https://controle-financeiro-kk70.onrender.com` — note: Render free tier sleeps, first request may take ~60s (timeout set to 90s)
+- **Backend**: POSTs to `https://controle-financeiro-kk70.onrender.com` — note: Render free tier sleeps, first request may take ~60s (timeout set to 90s, 3 retries)
 
 ### Gmail MCP (local)
 Configured in `~/.claude.json` for local Claude Code use:
