@@ -32,7 +32,8 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 import easyocr
-from PIL import Image, ImageEnhance, ImageFilter
+import cv2
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 # ── Configuração ─────────────────────────────────────────────────────────────
 # Lê de variáveis de ambiente (GitHub Actions) com fallback para valores locais
@@ -126,40 +127,64 @@ def download_image_attachments(service, message_id):
     return attachments, subject
 
 
-def preprocess_image(image):
-    """Pré-processa a imagem para melhorar a leitura do OCR."""
-    # Escala de cinza melhora detecção de texto em recibos impressos
-    image = image.convert("L")
+def preprocess_image(img_array):
+    """Binarização adaptativa via OpenCV — ideal para recibos impressos."""
+    # Converte para escala de cinza
+    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
 
-    # Upscale se a imagem for pequena (EasyOCR performa melhor com texto maior)
-    w, h = image.size
-    if max(w, h) < 1500:
-        scale = 1500 / max(w, h)
-        image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    # Upscale se necessário (EasyOCR performa melhor com texto maior)
+    h, w = gray.shape
+    if max(w, h) < 1800:
+        scale = 1800 / max(w, h)
+        gray = cv2.resize(gray, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_CUBIC)
 
-    # Aumenta contraste para destacar texto em fundo claro
-    image = ImageEnhance.Contrast(image).enhance(2.0)
+    # Binarização adaptativa: transforma em preto/branco limpo
+    # Ideal para recibos com fundo levemente cinza ou iluminação irregular
+    binary = cv2.adaptiveThreshold(
+        gray, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        blockSize=31, C=15
+    )
 
-    # Leve sharpening para bordar as letras
-    image = image.filter(ImageFilter.SHARPEN)
+    # Converte de volta para RGB (EasyOCR espera 3 canais)
+    return cv2.cvtColor(binary, cv2.COLOR_GRAY2RGB)
 
-    return image.convert("RGB")
+
+def ocr_to_text(reader, img_array):
+    """Tenta extrair texto com paragraph=False, depois paragraph=True se resultado for ruim."""
+    results = reader.readtext(img_array, detail=0, paragraph=False)
+    lines = [t.strip() for t in results if t.strip()]
+
+    # Se o resultado parecer fragmentado (muitas linhas com 1-2 chars), tenta paragraph=True
+    avg_len = sum(len(l) for l in lines) / max(len(lines), 1)
+    if avg_len < 4 and len(lines) > 10:
+        print("  OCR fragmentado, tentando modo parágrafo...")
+        results2 = reader.readtext(img_array, detail=0, paragraph=True)
+        lines2 = [t.strip() for t in results2 if t.strip()]
+        if sum(len(l) for l in lines2) > sum(len(l) for l in lines):
+            lines = lines2
+
+    return "\n".join(lines)
 
 
 def extract_transaction(image_data):
     """Extrai dados do recibo usando EasyOCR + parsing de texto."""
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Converter imagem e aplicar pré-processamento
-    image = Image.open(io.BytesIO(image_data)).convert("RGB")
-    image = preprocess_image(image)
-    img_array = np.array(image)
+    # Converter imagem — aplica rotação EXIF antes de qualquer coisa
+    # Fotos de celular têm metadado EXIF de orientação que o PIL ignora por padrão;
+    # sem isso o EasyOCR recebe a imagem de lado e não consegue ler o texto.
+    image = Image.open(io.BytesIO(image_data))
+    image = ImageOps.exif_transpose(image)
+    image = image.convert("RGB")
+    img_array = preprocess_image(np.array(image))
 
     # Extrair texto via OCR
     reader = get_ocr_reader()
-    results = reader.readtext(img_array, detail=0, paragraph=False)
-    text_lines = [t.strip() for t in results if t.strip()]
-    full_text = "\n".join(text_lines)
+    full_text = ocr_to_text(reader, img_array)
+    text_lines = [l for l in full_text.splitlines() if l.strip()]
+    print(f"  OCR extraiu {len(text_lines)} linhas. Preview: {text_lines[:5]}")
 
     # ── Extrair VALOR ──────────────────────────────────────────────────────
     valor = None
