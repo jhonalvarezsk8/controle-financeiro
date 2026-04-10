@@ -141,6 +141,7 @@ Ver instruções completas em `scripts/SETUP.md`.
 - **Gmail OAuth**: credentials at `C:\Users\jhona\.gmail-mcp\credentials.json` (refresh token stored)
 - **OCR**: EasyOCR (local, free, no API key needed) — models cached in GitHub Actions (~500MB, chave `easyocr-models-v1`)
 - **Vision**: extracts `valor`, `data`, `tipo`, `descricao` from receipt image via regex parsing of OCR text
+- **Image preprocessing** (`preprocess_image` in `gmail_recibos.py`): applies `ImageOps.exif_transpose` (fixes EXIF rotation from phone photos — root cause of garbled OCR), then OpenCV adaptive thresholding for clean black/white text. Falls back to `paragraph=True` if output looks fragmented.
 - **Backend**: POSTs to `https://controle-financeiro-kk70.onrender.com` — note: Render free tier sleeps, first request may take ~60s (timeout set to 90s, 3 retries)
 
 ### Gmail MCP (local)
