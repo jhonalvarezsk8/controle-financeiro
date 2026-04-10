@@ -32,7 +32,7 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 import easyocr
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 
 # ── Configuração ─────────────────────────────────────────────────────────────
 # Lê de variáveis de ambiente (GitHub Actions) com fallback para valores locais
@@ -126,12 +126,33 @@ def download_image_attachments(service, message_id):
     return attachments, subject
 
 
+def preprocess_image(image):
+    """Pré-processa a imagem para melhorar a leitura do OCR."""
+    # Escala de cinza melhora detecção de texto em recibos impressos
+    image = image.convert("L")
+
+    # Upscale se a imagem for pequena (EasyOCR performa melhor com texto maior)
+    w, h = image.size
+    if max(w, h) < 1500:
+        scale = 1500 / max(w, h)
+        image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+
+    # Aumenta contraste para destacar texto em fundo claro
+    image = ImageEnhance.Contrast(image).enhance(2.0)
+
+    # Leve sharpening para bordar as letras
+    image = image.filter(ImageFilter.SHARPEN)
+
+    return image.convert("RGB")
+
+
 def extract_transaction(image_data):
     """Extrai dados do recibo usando EasyOCR + parsing de texto."""
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Converter imagem para array numpy
+    # Converter imagem e aplicar pré-processamento
     image = Image.open(io.BytesIO(image_data)).convert("RGB")
+    image = preprocess_image(image)
     img_array = np.array(image)
 
     # Extrair texto via OCR
